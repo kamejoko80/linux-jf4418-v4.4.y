@@ -802,6 +802,8 @@ dtb-$(CONFIG_ARCH_S5P4418) += \
 	s5p4418-nanopi2-rev04.dtb \
 	s5p4418-nanopi2-rev07.dtb \
 	s5p4418-nanopi2-rev103.dtb
+dtb-$(CONFIG_ARCH_S5P4418) += \
+	s5p4418-jf4418-rev01.dtb
 endif
 
 dtstree		:= $(srctree)/$(src)
