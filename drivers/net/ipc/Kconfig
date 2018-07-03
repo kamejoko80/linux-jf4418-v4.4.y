@@ -1,0 +1,11 @@
+#
+# IPC driver
+#
+
+comment "IPC driver"
+
+config IPC
+	tristate "IPC driver"
+	default n
+	---help---
+	The IPC driver enable.
