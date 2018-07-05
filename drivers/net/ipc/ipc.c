@@ -216,6 +216,16 @@ static void ipc_work_handler(struct work_struct *ws)
 		//ipc_frame_print(frame);
 		ipc_nl_send_msg(priv, frame);
 	}
+	
+	/* 
+	 * check if there is remained tx data then
+	 * trigger the ipc transaction again
+	 */
+	if(kfifo_avail(&priv->ipc_tx_fifo) >= IPC_TRANSFER_LEN){
+		/* notify spi slaver to start the transfer */
+		ipc_rqst_out(priv);
+	}
+
 }
 
 static irqreturn_t ipc_rqst_in_isr(int irq, void *devid)
