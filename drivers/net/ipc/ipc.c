@@ -110,7 +110,9 @@ void ipc_send(struct ipc_priv *priv, u8 *data, u16 len)
 	if(kfifo_avail(&priv->ipc_tx_fifo) >= IPC_TRANSFER_LEN){
 		if (ipc_frame_create(frame, data, len)) {
 			/* put data into the tx fifo */
+			mutex_lock_interruptible(&priv->ipc_lock);
 			kfifo_in(&priv->ipc_tx_fifo, frame, IPC_TRANSFER_LEN);
+			mutex_unlock(&priv->ipc_lock);
 			/* notify spi slaver to start the transfer */
 			ipc_rqst_out(priv);
 		}
@@ -127,7 +129,9 @@ void ipc_transfer_complete(void *context)
 		/* check if there is enough space in the rx fifo */
 		if(kfifo_avail(&priv->ipc_rx_fifo) >= IPC_TRANSFER_LEN){
 			/* put data into rx Fifo */
+			mutex_lock_interruptible(&priv->ipc_lock);
 			kfifo_in(&priv->ipc_rx_fifo, frame, IPC_TRANSFER_LEN);
+			mutex_unlock(&priv->ipc_lock);
 			/* notify there is incomming data */
 			queue_work(priv->wq, &priv->ipc_work);
 		}
@@ -145,7 +149,9 @@ void ipc_spi_transfer_queue(struct ipc_priv *priv)
 	/* check if there are data to transfer */
 	if(kfifo_len(&priv->ipc_tx_fifo) >= IPC_TRANSFER_LEN)
 	{
+		mutex_lock_interruptible(&priv->ipc_lock);
 		kfifo_out(&priv->ipc_tx_fifo, priv->spi_tx_buf, IPC_TRANSFER_LEN);
+		mutex_unlock(&priv->ipc_lock);
 	}
 
 	/* init spi message */
@@ -204,7 +210,9 @@ static void ipc_work_handler(struct work_struct *ws)
 
 	/* read out rx data */
 	if(kfifo_len(&priv->ipc_rx_fifo) >= IPC_TRANSFER_LEN) {
+		mutex_lock_interruptible(&priv->ipc_lock);
 		kfifo_out(&priv->ipc_rx_fifo, frame, IPC_TRANSFER_LEN);
+		mutex_unlock(&priv->ipc_lock);
 		//ipc_frame_print(frame);
 		ipc_nl_send_msg(priv, frame);
 	}
@@ -241,6 +249,9 @@ static int ipc_probe(struct spi_device *spi)
 		err = -ENOMEM;
 		goto exit_free;
 	}
+
+	/* initialize mutex lock */
+	mutex_init(&priv->ipc_lock);
 
 	priv->spi_rx_buf = devm_kzalloc(&spi->dev, IPC_TRANSFER_LEN,
 					GFP_KERNEL);
