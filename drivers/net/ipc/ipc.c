@@ -221,7 +221,8 @@ static void ipc_work_handler(struct work_struct *ws)
 	 * check if there is remained tx data then
 	 * trigger the ipc transaction again
 	 */
-	if(kfifo_avail(&priv->ipc_tx_fifo) >= IPC_TRANSFER_LEN){
+	if((kfifo_avail(&priv->ipc_tx_fifo) >= IPC_TRANSFER_LEN) &&
+		(priv->spi_msg.status == 0)) {
 		/* notify spi slaver to start the transfer */
 		ipc_rqst_out(priv);
 	}
@@ -233,7 +234,9 @@ static irqreturn_t ipc_rqst_in_isr(int irq, void *devid)
 	struct ipc_priv *priv = (struct ipc_priv *)devid;
 
 	/* queue spi transfer */
-	ipc_spi_transfer_queue(priv);
+	if(priv->spi_msg.status == 0) {
+		ipc_spi_transfer_queue(priv);
+	}
 
 	return IRQ_HANDLED;
 }
@@ -315,6 +318,9 @@ static int ipc_probe(struct spi_device *spi)
 	priv->spi_transfer.len = IPC_TRANSFER_LEN;
 	priv->spi_transfer.cs_change = 0;
 
+	/* init spi message */
+	spi_message_init(&priv->spi_msg);
+	
 	/* init ipc workqueue */
 	priv->wq = create_freezable_workqueue("ipc_wq");
 	INIT_WORK(&priv->ipc_work, ipc_work_handler);
