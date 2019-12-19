@@ -10,6 +10,7 @@
  */
  
 #include <linux/kernel.h>
+#include <linux/module.h>
 #include "frame.h"
 
 u8 ipc_frame_crc8(u8 *data, u16 len)
@@ -78,14 +79,22 @@ void ipc_frame_print(ipc_frame_t *frame)
 	printk(KERN_EMERG "  Soh : 0x%X\r\n", frame->header.soh);
 	printk(KERN_EMERG "  Len : %d\r\n", frame->header.len);
 	printk(KERN_EMERG "  Data: ");
-	printk(KERN_EMERG "%s", frame->data);
+	//printk(KERN_EMERG "%s", frame->data);
 
-#if 0
+#if 1
 	int i;
 
 	for (i = 0; i < frame->header.len; i++) {
-		printk(KERN_EMERG "%X ", frame->data[i]);
+		printk(KERN_EMERG "0x%X ", frame->data[i]);
 	}
 #endif
 	printk("\r\n");
 }
+
+EXPORT_SYMBOL(ipc_frame_print);
+EXPORT_SYMBOL(ipc_frame_create);
+EXPORT_SYMBOL(ipc_frame_check);
+
+MODULE_AUTHOR("Dang Minh Phuong <kamejoko80@yahoo.com>");
+MODULE_DESCRIPTION("IPC driver");
+MODULE_LICENSE("GPL v2");

@@ -175,6 +175,16 @@ static void ipc_nl_recv_msg(struct sk_buff *skb)
 {
 	struct nlmsghdr *nlh = (struct nlmsghdr *)skb->data;
 
+#if 0 /* Debug */
+	int i;
+	printk("ipc_nl_recv_msg\r\n");
+	printk("len = %d\r\n", nlmsg_len(nlh));
+	for(i = 0; i < nlmsg_len(nlh); i++){
+		printk("0x%X ", ((u8 *)nlmsg_data(nlh))[i]);
+	}
+	printk("\r\n");
+#endif
+
 	/* send data via IPC interface */
 	ipc_send(g_priv, (u8 *)nlmsg_data(nlh), nlmsg_len(nlh));
 }
@@ -349,6 +359,8 @@ static int ipc_probe(struct spi_device *spi)
 		goto exit_free_ipc_rx_fifo;
 	}
 
+	printk(KERN_INFO "Initialize IPC driver OK\r\n");
+
 	return 0;
 
 exit_free_ipc_rx_fifo:	
@@ -376,6 +388,10 @@ static int ipc_remove(struct spi_device *spi)
 
 	/* free the workqueue */
 	destroy_workqueue(priv->wq);
+
+    /* free gpio */
+	//gpio_free(priv->rqst_in);
+	//gpio_free(priv->rqst_out);
 
 	netlink_kernel_release(priv->nl_sk);
 	kfifo_free(&priv->ipc_rx_fifo);
