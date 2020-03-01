@@ -1,0 +1,1 @@
+cmd_drivers/tty/tty_spi/tty_spi.ko := arm-cortexa9-linux-gnueabihf-ld -EL -r  -T ./scripts/module-common.lds --build-id  -o drivers/tty/tty_spi/tty_spi.ko drivers/tty/tty_spi/tty_spi.o drivers/tty/tty_spi/tty_spi.mod.o

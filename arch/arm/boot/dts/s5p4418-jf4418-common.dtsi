@@ -831,7 +831,7 @@
 		status = "disabled";
 		compatible = "linux,spidev";
 		pl022,hierarchy = <0>;
-		pl022,com-mode = <0>;
+		pl022,com-mode = <2>;
 		pl022,interface = <0>;
 		pl022,rx-level-trig = <1>;
 		pl022,tx-level-trig = <1>;
@@ -840,7 +840,7 @@
 	};
 
 	ipc0: ipc@0 {
-		status = "okay";
+		status = "disabled";
 		compatible = "pdtech,ipc";
 		reg = <0>;
 		spi-max-frequency = <10000000>;
@@ -849,6 +849,25 @@
 		interrupts = <30 IRQ_TYPE_EDGE_FALLING>;		
 		rqst_in = <&gpio_b 30 0>;
 		rqst_out = <&gpio_b 31 0>;
+		};
+
+	tty_spi: tty_spi@0 {
+		status = "okay";
+		compatible = "fossil,tty_spi";
+		reg = <0>;
+		pl022,interface = <0>;
+		pl022,com-mode = <2>;
+		pl022,rx-level-trig = <1>;
+		pl022,tx-level-trig = <1>;
+		pl022,duplex = <0>;
+		spi-max-frequency = <5000000>;
+		buswidth = <8>;
+		interrupt-parent = <&gpio_b>;
+		interrupts = <30 IRQ_TYPE_EDGE_FALLING>;		
+		irq_in = <&gpio_b 30 0>;
+		status_in = <&gpio_b 31 0>;
+		status_out = <&gpio_b 28 0>;
+		send_request = <&gpio_b 29 0>;		
 		};
 
 	t28tft0: fbtft@0 {

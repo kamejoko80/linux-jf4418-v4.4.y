@@ -304,6 +304,15 @@ config NOZOMI
 	  To compile this driver as a module, choose M here, the module
 	  will be called nozomi.
 
+config TTY_SPI
+	tristate "TTY SPI support"
+	depends on SPI
+	help
+	  Support tty over SPI.
+
+	  To compile this driver as a module, choose M here, the module
+	  will be called tty_spi.
+
 config ISI
 	tristate "Multi-Tech multiport card support"
 	depends on SERIAL_NONSTANDARD && PCI
