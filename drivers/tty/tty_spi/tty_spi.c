@@ -269,7 +269,7 @@ static void ipc_master_event_handler(struct tty_spi *priv, bool is_gpio_irq)
 	if(is_gpio_irq && is_slaver_busy())
 	{
 		ipc_master_spi_bus_recovery(priv);
-		printk(KERN_ERR "ipc is recovered from remote requested\r\n");
+		//printk(KERN_ERR "ipc is recovered from remote requested\r\n");
 		return;
 	}
 
@@ -439,7 +439,7 @@ static void ipc_master_event_handler(struct tty_spi *priv, bool is_gpio_irq)
 			master_send_request();
 			delay_us(400);
 			set_master_ready();
-			printk(KERN_ERR "ipc is recovered from sync command\r\n");
+			//printk(KERN_ERR "ipc is recovered from sync command\r\n");
 		break;
 
 		default:
@@ -508,15 +508,18 @@ static ipc_status_t ipc_master_send(struct tty_spi *priv, u8 *pTxData, u16 Size)
 		}
 	}
 
-	printk(KERN_ERR "ipc_master_send completed\r\n");
+	//printk(KERN_ERR "ipc_master_send completed\r\n");
 
 	return IPC_OK;
 }
 
 static void ipc_master_receive_callback(struct tty_spi *priv)
 {	
-	printk(KERN_ERR "===> ipc_master_receive_callback\r\n");
-	printk(KERN_ERR "%s\r\n", g_IPCHandle.pRxData);
+	//printk(KERN_ERR "===> ipc_master_receive_callback\r\n");
+	//printk(KERN_ERR "%s\r\n", g_IPCHandle.pRxData);
+	
+	tty_insert_flip_string(&priv->tty_port, g_IPCHandle.pRxData, g_IPCHandle.Size);
+	tty_flip_buffer_push(&priv->tty_port);	
 }
 
 /* spi device driver implementation */
@@ -958,6 +961,7 @@ error_ret:
 
 static int tty_spi_open(struct tty_struct *tty, struct file *filp)
 {	
+	struct tty_spi *priv; 
 	int ret;
 	
 	//printk(KERN_ERR "===> %s\r\n", __func__);
@@ -969,7 +973,7 @@ static int tty_spi_open(struct tty_struct *tty, struct file *filp)
 	}
 	
 	/* get driver data */
-	struct tty_spi *priv = tty->driver_data;
+	priv = tty->driver_data;
 	
 	/* enable gpio irq */
 	enable_irq(priv->gpio_irq);
@@ -1015,23 +1019,53 @@ static int tty_spi_write(struct tty_struct *tty, const unsigned char *buffer,
 	struct tty_spi *priv = tty->driver_data;
 	unsigned char *tmp_buf = (unsigned char *)buffer;
 	unsigned long flags;
-	bool is_fifo_empty;
+	//bool is_fifo_empty;
 	int tx_count;
-
-	printk(KERN_ERR "===> %s : %s\r\n", __func__, buffer);
-
-	spin_lock_irqsave(&priv->fifo_lock, flags);
-	is_fifo_empty = kfifo_is_empty(&priv->tx_fifo);
-	tx_count = kfifo_in(&priv->tx_fifo, tmp_buf, count);
-	spin_unlock_irqrestore(&priv->fifo_lock, flags);
 	
-	/* Test SPI DMA transfer */
-	// spi_write_async(priv, buffer, count);
+	ipc_status_t status;
 	
-	//if (is_fifo_empty)
-	//	mrdy_assert(ifx_dev);
+	#if 0
+	int i;
 
-	return tx_count;	
+	printk(KERN_ERR "===> %s : count %d\r\n", __func__, count);
+
+	for(i = 0; i < count; i++)
+	{
+		printk(KERN_ERR "data[%d] = %x %c\r\n", i, buffer[i], buffer[i]);
+	}
+	
+	printk(KERN_ERR "\r\n");
+	
+	#endif
+	
+	/* ignore end of transfer */
+	if(count == 2){
+		if((buffer[0] == 0xd) && (buffer[1] == 0xa)){
+			return count;
+		}
+	}
+	
+	#if 1
+	if(g_IPCHandle.Status != IPC_OK) {
+		spin_lock_irqsave(&priv->fifo_lock, flags);
+		//is_fifo_empty = kfifo_is_empty(&priv->tx_fifo);
+		tx_count = kfifo_in(&priv->tx_fifo, tmp_buf, count);
+		spin_unlock_irqrestore(&priv->fifo_lock, flags);
+		return tx_count;
+	}else{
+		/* send data via spi */	
+		status = ipc_master_send(priv, buffer, count);
+		
+		if(IPC_OK == status) {
+			return count;
+		}else{
+			ipc_master_sync_request(priv);
+			return 0;
+		}	
+	}
+	#endif
+	
+	return count;
 	
 }
 
@@ -1045,7 +1079,7 @@ static void tty_spi_hangup(struct tty_struct *tty)
 static int tty_spi_write_room(struct tty_struct *tty)
 {
 	struct tty_spi *priv = tty->driver_data;
-	printk(KERN_ERR "===> %s\r\n", __func__);
+	//printk(KERN_ERR "===> %s room = %d\r\n", __func__, TTY_SPI_FIFO_SIZE - kfifo_len(&priv->tx_fifo));
 	return TTY_SPI_FIFO_SIZE - kfifo_len(&priv->tx_fifo);	
 }
 
@@ -1096,7 +1130,8 @@ static __init int tty_spi_init(void)
 	tty_drv->subtype = SERIAL_TYPE_NORMAL;
 	tty_drv->flags = TTY_DRIVER_REAL_RAW | TTY_DRIVER_DYNAMIC_DEV;
 	tty_drv->init_termios = tty_std_termios;
-	
+	tty_drv->init_termios.c_cflag &= ~ECHO;
+
 	/* set operation */
 	tty_set_operations(tty_drv, &tty_spi_ops);
 
