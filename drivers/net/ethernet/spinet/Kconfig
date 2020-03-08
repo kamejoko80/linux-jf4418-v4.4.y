@@ -1,0 +1,23 @@
+#
+# spi network device configuration
+#
+
+config NET_VENDOR_FOSSIL
+	bool "SPI network emulated devices"
+	default y
+	depends on SPI
+	---help---
+	  If you have a network (Ethernet) card belonging to this class, say Y.
+
+if NET_VENDOR_FOSSIL
+
+config SPINET
+	tristate "SPI netdev support"
+	depends on SPI
+	---help---
+	  Support for the SPI netdev device.
+
+	  To compile this driver as a module, choose M here. The module will be
+	  called spinet.
+
+endif # NET_VENDOR_FOSSIL
