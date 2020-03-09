@@ -339,10 +339,11 @@ static ipc_status_t ipc_send(struct spinet *priv, u8 *data, size_t len)
     if(!ipc_transfer_complete) {
     	return IPC_BUSY;
     }
-
-    if(!is_slaver_busy()) {
+ 
+	set_master_busy();	
+ 
+    if(!is_slaver_busy()) {	
         if(ipc_frame_create(priv, frame, data, len)) {
-            set_master_busy();
             master_send_request();
             mdelay(WAITTIME);
             ipc_transfer_complete = false;
@@ -350,10 +351,12 @@ static ipc_status_t ipc_send(struct spinet *priv, u8 *data, size_t len)
         	ret = IPC_OK;
         } else {
 			printk(KERN_ERR "===== ipc frame create error =====\r\n");
-        	ret = IPC_ERR;
+        	set_master_ready();
+			ret = IPC_ERR;
         }
     } else {
-		printk(KERN_ERR "===== is_slaver_busy =====\r\n");
+		//printk(KERN_ERR "===== is_slaver_busy =====\r\n");
+		set_master_ready();
        	ret = IPC_BUSY;
     }
 
@@ -369,12 +372,14 @@ static void sync_command(struct spinet *priv)
 
 static void ipc_receive_callback(struct spinet *priv)
 {
+#if 0	
 	ipc_frame_t *frame = (ipc_frame_t *)priv->rx_buff;
 
 	if(ipc_frame_check(frame))
 	{
 		ipc_frame_print(frame);
 	}
+#endif	
 }
 
 static void spinet_spi_work_handler(struct work_struct *work)
@@ -560,28 +565,25 @@ static int spinet_close(struct net_device *dev)
 static netdev_tx_t spinet_send_packet(struct sk_buff *skb, struct net_device *dev)
 {
 	struct spinet *priv = netdev_priv(dev);
-
-	//u8 echo_msg[] = {'E', 'C', 'H', 'O'};	
-	//ipc_send(priv, echo_msg, 4);		
+	ipc_status_t ipc_status;
+	netdev_tx_t ret = NETDEV_TX_OK;
 
 	if (netif_msg_tx_queued(priv))
 		printk(KERN_ERR DRV_NAME ": %s() enter\n", __func__);
 
-	/* If some error occurs while trying to transmit this
-	 * packet, you should return '1' from this function.
-	 * In such a case you _may not_ do anything to the
-	 * SKB, it is still owned by the network queueing
-	 * layer when an error is returned.  This means you
-	 * may not modify any SKB fields, you may not free
-	 * the SKB, etc.
-	 */
-	//netif_stop_queue(dev);
+	if(skb != NULL) {
+		priv->tx_skb = skb;
+		ipc_status = ipc_send(priv, priv->tx_skb->data, priv->tx_skb->len);
+		if(ipc_status == IPC_OK) {
+			dev_kfree_skb(priv->tx_skb);
+			priv->tx_skb = NULL;
+			dev->stats.tx_packets++;
+		}else{
+			ret = NETDEV_TX_BUSY;			
+		}			
+	}
 
-	/* Remember the skb for deferred processing */
-	priv->tx_skb = skb;
-	schedule_work(&priv->tx_work);
-
-	return NETDEV_TX_OK;	
+	return ret;	
 }						
 
 static void spinet_multicast_list(struct net_device *dev)
@@ -625,11 +627,15 @@ static void spinet_tx_work_handler(struct work_struct *work)
 {
 	struct spinet *priv = container_of(work, struct spinet, tx_work);
 	
-	//if (netif_msg_tx_queued(priv))
-		printk(KERN_ERR DRV_NAME ": Tx Packet Len:%d\n", priv->tx_skb->len);
-
-	//if (netif_msg_pktdata(priv))
-		dump_packet(__func__, priv->tx_skb->len, priv->tx_skb->data);	
+	printk(KERN_ERR DRV_NAME ": Tx Packet Len:%d\n", priv->tx_skb->len);
+	dump_packet(__func__, priv->tx_skb->len, priv->tx_skb->data);
+	
+	ipc_send(priv, priv->tx_skb->data, priv->tx_skb->len);
+	
+	if (priv->tx_skb) {
+		dev_kfree_skb(priv->tx_skb);
+		priv->tx_skb = NULL;
+	}
 }
 
 static void spinet_setrx_work_handler(struct work_struct *work)
