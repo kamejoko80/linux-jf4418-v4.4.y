@@ -74,7 +74,7 @@
 #define DRV_NAME	"spinet"
 #define DRV_VERSION	"1.01"
 
-#define SPI_MODE			    (SPI_MODE_0)
+#define SPI_MODE (SPI_MODE_0)
 
 #define SPINET_MSG_DEFAULT	\
 	(NETIF_MSG_PROBE | NETIF_MSG_IFUP | NETIF_MSG_IFDOWN | NETIF_MSG_LINK)
@@ -205,7 +205,7 @@ struct spinet {
 /* use ethtool to change the level for any given device */
 static struct {
 	u32 msg_enable;
-} debug = { 1 };
+} debug = { -1 };
 
 static unsigned long msec20_to_jiffies;
 
@@ -228,7 +228,7 @@ static const struct spi_device_id spinet_id_table[] = {
 /* IPC implementation */
 
 static void spi_write_async(struct spinet *priv, u8 *buf);
-
+static void dump_packet(const char *msg, int len, const char *data);
 
 static void delay_us(u32 us)
 {
@@ -307,7 +307,7 @@ static bool ipc_frame_check(ipc_frame_t *frame)
     return ret;
 }
 
-static void ipc_frame_print(ipc_frame_t *frame)
+void ipc_frame_print(ipc_frame_t *frame)
 {
     int i;
 
@@ -315,10 +315,18 @@ static void ipc_frame_print(ipc_frame_t *frame)
     printk(KERN_ERR "Header:\r\n");
     printk(KERN_ERR "  Soh : 0x%X\r\n", frame->header.soh);
     printk(KERN_ERR "  Len : %d\r\n", frame->header.len);
-    printk(KERN_ERR "  Data: ");
+    printk(KERN_ERR "  Data:\r\n");
 
     for (i = 0; i < frame->header.len; i++) {
-        printk(KERN_ERR "%X ", frame->data[i]);
+
+    	if(frame->data[i] <= 0x0F)
+    	{
+			printk(KERN_ERR "0%X ", frame->data[i]);
+    	}
+    	else
+    	{
+			printk(KERN_ERR "%X ", frame->data[i]);
+    	}		
     }
 
     printk(KERN_ERR "\r\n");
@@ -363,7 +371,7 @@ static ipc_status_t ipc_send(struct spinet *priv, u8 *data, size_t len)
     return ret;
 }
 
-static void sync_command(struct spinet *priv)
+void sync_command(struct spinet *priv)
 {
 	ipc_init(priv);
 	master_send_request();
@@ -372,14 +380,33 @@ static void sync_command(struct spinet *priv)
 
 static void ipc_receive_callback(struct spinet *priv)
 {
-#if 0	
 	ipc_frame_t *frame = (ipc_frame_t *)priv->rx_buff;
-
+	struct net_device *ndev = priv->netdev;
+	struct sk_buff *skb = NULL;
+	unsigned long flags;
+	int len;
+	
 	if(ipc_frame_check(frame))
 	{
-		ipc_frame_print(frame);
+		//ipc_frame_print(frame);
+		len = frame->header.len;
+		skb = netdev_alloc_skb(ndev, len + NET_IP_ALIGN);
+		if (!skb) {
+			dev_err(&ndev->dev, "out of memory for Rx'd frame\n");
+			ndev->stats.rx_dropped++;
+		} else {
+			skb_reserve(skb, NET_IP_ALIGN);
+			spin_lock_irqsave(&priv->buff_lock, flags);
+			memcpy(skb_put(skb, len), frame->data, len);
+			spin_unlock_irqrestore(&priv->buff_lock, flags);
+			//dump_packet(__func__, skb->len, skb->data);
+			skb->protocol = eth_type_trans(skb, ndev);
+			/* update statistics */
+			ndev->stats.rx_packets++;
+			ndev->stats.rx_bytes += len;
+			netif_rx_ni(skb);
+		}
 	}
-#endif	
 }
 
 static void spinet_spi_work_handler(struct work_struct *work)
@@ -503,17 +530,13 @@ static int spinet_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 
 static void spineet_get_drvinfo(struct net_device *dev, struct ethtool_drvinfo *info)
 {
-	struct spinet *priv = netdev_priv(dev);
-	
-	printk(KERN_ERR "===> %s\r\n", __func__);
+	//struct spinet *priv = netdev_priv(dev);
+	//printk(KERN_ERR "===> %s\r\n", __func__);
 	
 	strlcpy(info->driver, DRV_NAME, sizeof(info->driver));
 	strlcpy(info->version, DRV_VERSION, sizeof(info->version));
 	strlcpy(info->bus_info,
 		dev_name(dev->dev.parent), sizeof(info->bus_info));
-	
-	/* init ipc */
-	ipc_init(priv);
 }
 
 static u32 spinet_get_msglevel(struct net_device *dev)
@@ -551,6 +574,9 @@ static int spinet_open(struct net_device *dev)
 				dev->dev_addr);
 		return -EADDRNOTAVAIL;
 	}
+
+	/* init ipc */
+	ipc_init(priv);
 
 	return 0;
 }
