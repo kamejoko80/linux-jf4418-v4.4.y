@@ -148,6 +148,7 @@ typedef enum
 
 /* IPC transfer complete status */
 static bool ipc_transfer_complete = true;
+static bool is_sending = false;
 
 /* Driver local data */
 struct spinet {
@@ -355,6 +356,7 @@ static ipc_status_t ipc_send(struct spinet *priv, u8 *data, size_t len)
  
     if(!is_slaver_busy()) {	
         if(ipc_frame_create(priv, frame, data, len)) {
+			is_sending = true;
             master_send_request();
             mdelay(WAITTIME);
             ipc_transfer_complete = false;
@@ -458,8 +460,14 @@ static void spi_transfer_complete(void *context)
 	struct spinet *priv = (struct spinet *)context;
 
 	//printk(KERN_ERR "===> spi_transfer_complete\r\n");
-	
-	schedule_work(&priv->spi_work);
+
+	if(is_sending) {
+		is_sending = false;
+		ipc_transfer_complete = true;
+		set_master_ready();
+	} else {
+		schedule_work(&priv->spi_work);
+	}
 }
 
 static void spi_write_async(struct spinet *priv, u8 *buf)
