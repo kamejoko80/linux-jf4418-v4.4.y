@@ -296,10 +296,13 @@ static bool ipc_frame_check(ipc_frame_t *frame)
 
     if(frame->header.soh != IPC_FRAME_SOH) {
         //printk(KERN_ERR "Error IPC frame header SOH\r\n");
+		return ret;
     } else if(ipc_frame_crc8((u8 *)&frame->header, 3) != frame->header.crc8) {
         //printk(KERN_ERR "Error IPC frame header\r\n");
+		return ret;
     } else if(ipc_frame_crc8(frame->data, frame->header.len) != frame->crc8) {
         //printk(KERN_ERR "Error IPC frame data\r\n");
+		return ret;
     } else {
         ret = true;
     }
@@ -416,8 +419,8 @@ static void spinet_spi_work_handler(struct work_struct *work)
 	//printk(KERN_ERR "===> spinet_spi_work_handler\r\n");
 
 	ipc_receive_callback(priv);
+	ipc_transfer_complete = true;	
 	set_master_ready();
-	ipc_transfer_complete = true;
 }
 
 static void spinet_irq_work_handler(struct work_struct *work)
