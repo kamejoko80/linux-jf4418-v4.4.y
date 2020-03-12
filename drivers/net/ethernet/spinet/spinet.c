@@ -601,9 +601,10 @@ static netdev_tx_t spinet_send_packet(struct sk_buff *skb, struct net_device *de
 		priv->tx_skb = skb;
 		ipc_status = ipc_send(priv, priv->tx_skb->data, priv->tx_skb->len);
 		if(ipc_status == IPC_OK) {
+			dev->stats.tx_packets++;
+			dev->stats.tx_bytes += priv->tx_skb->len;			
 			dev_kfree_skb(priv->tx_skb);
 			priv->tx_skb = NULL;
-			dev->stats.tx_packets++;
 		}else{
 			ret = NETDEV_TX_BUSY;			
 		}			
