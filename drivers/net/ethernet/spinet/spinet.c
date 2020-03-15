@@ -454,7 +454,7 @@ void ipc_cmd_sync(struct spinet *priv)
 {
 	ipc_init(priv);
 	master_send_request();
-	delay_us(WAITTIME);
+	mdelay(WAITTIME);
 }
 
 void ipc_receive_callback(struct spinet *priv)
