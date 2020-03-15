@@ -12,196 +12,12 @@
  *
  */
 
-#include <linux/module.h>
-#include <linux/kernel.h>
-#include <linux/types.h>
-#include <linux/fcntl.h>
-#include <linux/interrupt.h>
-#include <linux/string.h>
-#include <linux/errno.h>
-#include <linux/init.h>
-#include <linux/kfifo.h>
-#include <linux/ioport.h>
-#include <linux/netdevice.h>
-#include <linux/etherdevice.h>
-#include <linux/ethtool.h>
-#include <linux/tcp.h>
-#include <linux/skbuff.h>
-#include <linux/delay.h>
-#include <linux/spi/spi.h>
-#include <linux/of.h>
-#include <linux/of_device.h>
-#include <linux/of_gpio.h>
+#include "spinet.h"
+#include "ncovif.h"
+#include "ipc.h"
 
-	/** SPI GPIO Configuration (SPI master)
-    Pin 24  ------> SPI0_CSN
-    Pin 23  ------> SPI1_SCK
-    Pin 21  ------> SPI1_MISO
-    pin 19  ------> SPI1_MOSI
-
-    Pin 07  ------> m_status_out
-    Pin 15  ------> s_status_in
-    Pin 11  ------> m_send_rqst
-    Pin 13  ------> m_irq_in
-    */
-
-	/** SPI GPIO Configuration (SPI slaver)
-    PA15     ------> SPI3_NSS
-    PC10     ------> SPI3_SCK
-    PC11     ------> SPI3_MISO
-    PC12     ------> SPI3_MOSI
-
-    PB8      ------> s_status_out
-    PB9      ------> m_status_in
-    PE0      ------> s_send_rqst (need to pull down by external resistor)
-    PB1      ------> s_irq_in
-    */
-
-	/** Connection
-    Master  <----->  Slaver
-
-    Pin 24  ------> PA15 (SPI_NSS)
-    Pin 23  ------> PC10 (SPI_SCK)
-    Pin 21  <-----  PC11 (SPI_MISO)
-    Pin 19  ------> PC12 (SPI_MOSI)
-
-    Pin 07  ------> PB9  (m_status_out ---> m_status_in)
-    Pin 15  <-----  PB8  (s_status_out ---> s_status_in)
-    Pin 13  <-----  PE0  (s_send_rqst  ---> m_irq_in)
-    Pin 11  ------> PB1  (s_irq_in     ---> m_send_rqst)
-    */
-
-#define DRV_NAME	"spinet"
-#define DRV_VERSION	"1.01"
-
-#define SPI_MODE (SPI_MODE_0)
-
-#define SPINET_MSG_DEFAULT	\
-	(NETIF_MSG_PROBE | NETIF_MSG_IFUP | NETIF_MSG_IFDOWN | NETIF_MSG_LINK)
-
-#define TX_TIMEOUT	(4 * HZ)
-
-/* IPC definitcation */
-#define GPIO_PIN_SET               (1)
-#define GPIO_PIN_RESET             (0) 
-#define READ_S_STATUS()            (gpio_get_value(priv->status_in))          
-#define set_master_busy()          (gpio_set_value(priv->status_out, 1))         
-#define set_master_ready()         (gpio_set_value(priv->status_out, 0))      
-#define is_slaver_busy()           (gpio_get_value(priv->status_in) == GPIO_PIN_SET)
-#define master_send_request()      (gpio_set_value(priv->send_request, 1), gpio_set_value(priv->send_request, 0))  
-
-#define CPU_MHZ                    (100000)
-#define DELAY_UNIT                 (1)
-#define WAITTIME     			   (200)
-
-/*!
- * IPC parameter configuration
- */
-#define IPC_TRANSFER_LEN (1524)
-#define IPC_DATA_MAX_LEN (IPC_TRANSFER_LEN - 5)
-#define IPC_FRAME_SOH    (0xA5)
-
-#define FIFO_DEPTH       (10)
-#define FIFO_BUF_SIZE    (FIFO_DEPTH*IPC_TRANSFER_LEN)
-
-/*
- * IPC Frame structure:
- *  _____ _____ ______ ______ ____________ ______________
- * |     |     |      |      |            |              |
- * | SOH | LEN | CRC8 | CRC8 |    DATA    | ZERO PADDING |
- * |_____|_____|______|______|____________|______________|
- *
- * |<----------------- IPC_TRANSFER_LEN ---------------->|
- *
- *  SOH  : uint8_t  : Start of header
- *  LEN  : uint16_t : Data length (not include data CRC8)
- *  CRC8 : uint8_t  : Header CRC checksum
- *  CRC8 : uint8_t  : Frame data checksum
- *  DATA : uint8_t  : IPC frame data
- *
- */
-
-/* IPC frame header structure */
-typedef struct
-{
-    uint8_t  soh;    /* Start of header     */
-    uint16_t len;    /* Payload length      */
-    uint8_t  crc8;   /* Header CRC checksum */
-} __attribute__((packed, aligned(1))) ipc_frame_header_t;
-
-/*!
- * IPC frame structure
- */
-typedef struct
-{
-	ipc_frame_header_t header;      /* Frame header      */
-    uint8_t crc8;                   /* Data CRC checksum */
-    uint8_t data[IPC_DATA_MAX_LEN]; /* Frame data        */
-} __attribute__((packed, aligned(1))) ipc_frame_t;
-
-typedef enum
-{
-	IPC_OK         = 0x00U,
-	IPC_BUSY       = 0x01U,
-	IPC_ERR        = 0x02U
-} ipc_status_t;
-
-/* IPC transfer complete status */
-static bool ipc_transfer_complete = true;
-static bool is_sending = false;
-
-/* Driver local data */
-struct spinet {
-	
-	/* net dev */
-	struct net_device *netdev;
-	
-	/* spi dev */
-	struct spi_device *spi;
-	struct spi_transfer spi_transfer;
-	struct spi_message spi_msg;
-	
-	/* spi transfer buffers */
-	u8 *tx_buff;
-	u8 *rx_buff;
-	
-	/* ipc transmit fifo buffer */
-	struct kfifo ipc_tx_fifo;
-	
-	/* resource lock */
-	spinlock_t buff_lock;
-	struct mutex lock;
-	
-	/* skb buffer */
-	struct sk_buff *tx_skb;
-	
-	/* scheduler */
-	struct work_struct spi_work;
-	struct work_struct tx_work;
-	struct work_struct irq_work;
-	struct work_struct setrx_work;
-	struct work_struct restart_work;
-	
-	u8 bank;		/* current register bank selected */
-	u16 next_pk_ptr;	/* next packet pointer within FIFO */
-	u16 max_pk_counter;	/* statistics: max packet counter */
-	u16 tx_retry_count;
-	bool hw_enable;
-	bool full_duplex;
-	int rxfilter;
-	u32 msg_enable;	
-	//u8 spi_transfer_buf[SPI_TRANSFER_BUF_LEN];
-
-	/* ctrl gpios */
-	int status_in;
-	int status_out;
-	int send_request;
-	int irq_in;
-	
-	/* gpio irq flag */
-	int gpio_irq;
-	bool gpio_flag;
-};
+/* function prototypes */
+void spi_write_async(struct spinet *priv, u8 *buf);
 
 /* use ethtool to change the level for any given device */
 static struct {
@@ -226,12 +42,289 @@ static const struct spi_device_id spinet_id_table[] = {
 	{ }
 };
 
+/* NCOVIF debugging implementation */
+
+uint8_t  my_macaddr[6] = {0x51, 0x80, 0x21, 0xfe, 0xad, 0xd2};
+uint8_t  my_ipaddr[4]  = {0x0A, 0x00, 0x00, 0x02};
+
+uint8_t  ex_macaddr[6] = {0xA6, 0x99, 0x91, 0xAD, 0x9D, 0x6F};
+uint8_t  ex_ipaddr[4]  = {0x0A, 0x00, 0x00, 0x01};
+
+struct ethIIhdr eth_frame_dst;
+
+volatile bool arp_request = false;
+volatile bool icmp_request = false;
+
+void eth_header_print(struct ethIIhdr *frame);
+void arp_header_print(struct arphdr *arp);
+int icmp_build_package(struct iphdr *sender_iph, uint8_t *icmpd, uint16_t len);
+uint8_t* ip_output_standalone(struct ethIIhdr *eth, uint8_t protocol, uint16_t ip_id,
+								uint32_t saddr, uint32_t daddr, uint16_t payloadlen);
+
+void ipc_network_input(struct spinet *priv, uint8_t *data, uint16_t len)
+{
+	struct net_device *ndev = priv->netdev;
+	struct sk_buff *skb = NULL;
+	unsigned long flags;
+
+	skb = netdev_alloc_skb(ndev, len + NET_IP_ALIGN);
+	if (!skb) {
+			dev_err(&ndev->dev, "out of memory for Rx'd frame\n");
+			ndev->stats.rx_dropped++;
+	} else {
+		skb_reserve(skb, NET_IP_ALIGN);
+		spin_lock_irqsave(&priv->buff_lock, flags);
+		memcpy(skb_put(skb, len), data, len);
+		spin_unlock_irqrestore(&priv->buff_lock, flags);
+		skb->protocol = eth_type_trans(skb, ndev);
+		/* update statistics */
+		ndev->stats.rx_packets++;
+		ndev->stats.rx_bytes += len;
+		netif_rx_ni(skb);
+	}
+}
+
+void send_icmp_echo(struct spinet *priv)
+{
+	if(icmp_request){
+		ipc_network_input(priv, (uint8_t *)&eth_frame_dst, 98);
+		icmp_request = false;
+	}
+}
+
+void send_arp_response(struct spinet *priv)
+{
+	if(arp_request)
+	{
+		printk(KERN_ERR "send_arp_response\r\n");
+		ipc_network_input(priv, (uint8_t *)&eth_frame_dst, 42);		
+		arp_request = false;
+	}
+}
+
+void build_arp_reply_package(struct ethIIhdr *eth_frame_dst, struct ethIIhdr *eth_frame_src)
+{
+	struct arphdr *arp_dest = (struct arphdr *)eth_frame_dst->data;
+	struct arphdr *arp_src  = (struct arphdr *)eth_frame_src->data;
+
+	/* build response message */
+	memcpy(eth_frame_dst->h_source, my_macaddr, 6);
+	memcpy(eth_frame_dst->h_dest, eth_frame_src->h_source, 6);
+	eth_frame_dst->h_proto = eth_frame_src->h_proto;
+
+	arp_dest->ar_hrd = arp_src->ar_hrd;
+	arp_dest->ar_pro = arp_src->ar_pro;
+	arp_dest->ar_hln = arp_src->ar_hln;
+	arp_dest->ar_pln = arp_src->ar_pln;
+	arp_dest->ar_op = __swap16(ARPOP_REPLY);
+	memcpy(arp_dest->ar_sha, my_macaddr, 6);
+	memcpy(arp_dest->ar_sip, my_ipaddr, 4);
+	memcpy(arp_dest->ar_tha, arp_src->ar_sha, 6);
+	memcpy(arp_dest->ar_tip, arp_src->ar_sip , 4);
+}
+
+void arp_frame_process(struct spinet *priv, struct ethIIhdr *eth_frame)
+{
+	struct arphdr *arp_frame = (struct arphdr *)eth_frame->data;
+
+	switch (arp_frame->ar_op){
+		case __swap16(ARPOP_REQUEST):
+			build_arp_reply_package(&eth_frame_dst, eth_frame);
+			arp_request = true;
+			schedule_work(&priv->spi_work);
+		break;
+
+		case __swap16(ARPOP_REPLY):
+		break;
+
+		default:
+		break;
+	}
+}
+
+void icmp_frame_process(struct spinet *priv, struct ethIIhdr *eth_frame)
+{
+	struct iphdr *iph = (struct iphdr *)eth_frame->data;
+	struct icmphdr *icmph = (struct icmphdr *) IP_NEXT_PTR(iph);
+
+	uint16_t len, data_len;
+
+	switch (icmph->icmp_type){
+		case ICMP_ECHO:
+			len = ntohs(iph->tot_len);
+			data_len = (uint16_t)(len-(iph->ihl<<2)-sizeof(struct icmphdr));
+			icmp_build_package(iph, (uint8_t *)(icmph + 1), data_len);
+			icmp_request = true;
+			schedule_work(&priv->spi_work);
+		break;
+
+		default:
+
+		break;
+	}
+}
+
+void ip_frame_process(struct spinet *priv, struct ethIIhdr *eth_frame)
+{
+	struct iphdr *ip_frame = (struct iphdr *)eth_frame->data;
+
+	switch(ip_frame->protocol){
+		case IPPROTO_ICMP:
+			icmp_frame_process(priv, eth_frame);
+		break;
+		default:
+		break;
+	}
+}
+
+void eth_frame_process(struct spinet *priv, struct ethIIhdr *eth_frame)
+{
+	switch (eth_frame->h_proto){
+		case __swap16(ETH_P_ARP):
+			arp_frame_process(priv, eth_frame);
+		break;
+
+		case __swap16(ETH_P_IP):
+			ip_frame_process(priv, eth_frame);
+		break;
+
+		default:
+
+		break;
+	}
+}
+
+uint16_t icmp_checksum(uint16_t *icmph, int len)
+{
+	uint16_t ret = 0;
+	uint32_t sum = 0;
+	uint16_t odd_byte;
+
+	while (len > 1) {
+		sum += *icmph++;
+		len -= 2;
+	}
+
+	if (len == 1) {
+		*(uint8_t*)(&odd_byte) = *(uint8_t*)icmph;
+		sum += odd_byte;
+	}
+
+	sum =  (sum >> 16) + (sum & 0xffff);
+	sum += (sum >> 16);
+	ret =  ~sum;
+
+	return ret;
+}
+
+uint8_t* ip_output_standalone(struct ethIIhdr *eth, uint8_t protocol, uint16_t ip_id,
+		                      uint32_t saddr, uint32_t daddr, uint16_t payloadlen)
+{
+	struct iphdr *iph = (struct iphdr *)eth->data;
+
+	/* build up eth header */
+	memcpy(eth->h_source, my_macaddr, 6);
+	memcpy(eth->h_dest, ex_macaddr, 6);
+	eth->h_proto = __swap16(ETH_P_IP);
+
+	/* build up ip header */
+	iph->ihl = IP_HEADER_LEN >> 2;
+	iph->version = 4;
+	iph->tos = 0;
+	iph->tot_len = htons(IP_HEADER_LEN + payloadlen);
+	iph->id = ip_id;
+	iph->frag_off = htons(IP_DF);
+	iph->ttl = 64;
+	iph->protocol = protocol;
+	iph->saddr = saddr;
+	iph->daddr = daddr;
+	iph->check = 0;
+
+	/* calculate checksum */
+	iph->check = ip_fast_csum(iph, iph->ihl);
+
+	return (uint8_t *)(iph + 1);
+}
+
+int icmp_build_package(struct iphdr *sender_iph, uint8_t *icmpd, uint16_t len)
+{
+	struct icmphdr *icmph;
+	struct icmphdr *sender_icmph = (struct icmphdr *) IP_NEXT_PTR(sender_iph);
+
+	icmph = (struct icmphdr *)ip_output_standalone(&eth_frame_dst,
+			                  IPPROTO_ICMP,
+							  sender_iph->id,
+							  sender_iph->daddr,
+							  sender_iph->saddr,
+							  sizeof(struct icmphdr) + len);
+	if (!icmph)
+		return -1;
+
+	/* Fill in the icmp echo reply header */
+	icmph->icmp_type = ICMP_ECHOREPLY;
+	icmph->icmp_code = sender_icmph->icmp_code;
+	icmph->icmp_checksum = 0;
+
+	icmph->un.echo.icmp_id = sender_icmph->un.echo.icmp_id;
+	icmph->un.echo.icmp_sequence = sender_icmph->un.echo.icmp_sequence;
+
+	/* Fill in the icmp data */
+	if (len > 0){
+		memcpy((void *)(icmph + 1), icmpd, len);
+	}
+
+	/* Calculate ICMP Checksum with header and data */
+	icmph->icmp_checksum = icmp_checksum((uint16_t *)icmph, sizeof(struct icmphdr) + len);
+
+	return 0;
+}
+
 /* IPC implementation */
 
-static void spi_write_async(struct spinet *priv, u8 *buf);
-static void dump_packet(const char *msg, int len, const char *data);
+/* IPC transfer complete status */
+static bool ipc_transfer_complete = true;
+static bool is_sending = false;
 
-static void delay_us(u32 us)
+void ipc_frame_print(ipc_frame_t *frame)
+{
+    int i;
+
+    printk(KERN_ERR "===== IPC Frame Info =====\r\n");
+    printk(KERN_ERR "Header:\r\n");
+    printk(KERN_ERR "  Soh : 0x%X\r\n", frame->header.soh);
+    printk(KERN_ERR "  Len : %d\r\n", frame->header.len);
+    printk(KERN_ERR "  Data:\r\n");
+
+    for (i = 0; i < frame->header.len; i++) {
+
+    	if(frame->data[i] <= 0x0F){
+			printk(KERN_ERR "0%X ", frame->data[i]);
+    	}else{
+			printk(KERN_ERR "%X ", frame->data[i]);
+    	}		
+    }
+
+    printk(KERN_ERR "\r\n");
+}
+
+void ipc_dump_package(uint8_t *package, uint16_t len)
+{
+	uint16_t i;
+
+	printk(KERN_ERR "===== Package dumping =====\r\n");
+
+	for (i = 0; i < len; i++){
+		if(package[i] <= 0x0F){
+			printk(KERN_ERR "0%X ", package[i]);
+		}else{
+			printk(KERN_ERR "%X ", package[i]);
+		}
+	}
+
+	printk(KERN_ERR "\r\n");
+}
+
+void delay_us(u32 us)
 {
 	u32 i, j;
 
@@ -240,7 +333,7 @@ static void delay_us(u32 us)
 	}
 }
 
-static u8 ipc_frame_crc8(u8 *data, size_t len)
+u8 ipc_frame_crc8(u8 *data, size_t len)
 {
   unsigned crc = 0;
   int i, j;
@@ -259,7 +352,7 @@ static u8 ipc_frame_crc8(u8 *data, size_t len)
   return (u8)(crc >> 8);
 }
 
-static bool ipc_frame_create(struct spinet *priv, ipc_frame_t *frame, u8 *data, size_t len)
+bool ipc_frame_create(struct spinet *priv, ipc_frame_t *frame, u8 *data, size_t len)
 {
     bool ret = false;
 	unsigned long flags;
@@ -291,18 +384,15 @@ static bool ipc_frame_create(struct spinet *priv, ipc_frame_t *frame, u8 *data, 
     return ret;
 }
 
-static bool ipc_frame_check(ipc_frame_t *frame)
+bool ipc_frame_check(ipc_frame_t *frame)
 {
     bool ret = false;
 
     if(frame->header.soh != IPC_FRAME_SOH) {
-        //printk(KERN_ERR "Error IPC frame header SOH\r\n");
 		return ret;
     } else if(ipc_frame_crc8((u8 *)&frame->header, 3) != frame->header.crc8) {
-        //printk(KERN_ERR "Error IPC frame header\r\n");
 		return ret;
     } else if(ipc_frame_crc8(frame->data, frame->header.len) != frame->crc8) {
-        //printk(KERN_ERR "Error IPC frame data\r\n");
 		return ret;
     } else {
         ret = true;
@@ -311,40 +401,23 @@ static bool ipc_frame_check(ipc_frame_t *frame)
     return ret;
 }
 
-void ipc_frame_print(ipc_frame_t *frame)
-{
-    int i;
-
-    printk(KERN_ERR "===== IPC Frame Info =====\r\n");
-    printk(KERN_ERR "Header:\r\n");
-    printk(KERN_ERR "  Soh : 0x%X\r\n", frame->header.soh);
-    printk(KERN_ERR "  Len : %d\r\n", frame->header.len);
-    printk(KERN_ERR "  Data:\r\n");
-
-    for (i = 0; i < frame->header.len; i++) {
-
-    	if(frame->data[i] <= 0x0F)
-    	{
-			printk(KERN_ERR "0%X ", frame->data[i]);
-    	}
-    	else
-    	{
-			printk(KERN_ERR "%X ", frame->data[i]);
-    	}		
-    }
-
-    printk(KERN_ERR "\r\n");
-}
-
-static void ipc_init(struct spinet *priv)
+void ipc_init(struct spinet *priv)
 {
 	set_master_ready();
 	ipc_transfer_complete = true;
 	enable_irq(priv->gpio_irq);
 }
 
-static ipc_status_t ipc_send(struct spinet *priv, u8 *data, size_t len)
+ipc_status_t ipc_send(struct spinet *priv, u8 *data, size_t len)
 {
+
+#ifdef NCOVIF_ENABLE
+    ipc_status_t ret = IPC_OK;
+
+	/* internal received */
+	eth_frame_process(priv, (struct ethIIhdr *)data);	
+#else
+	
     ipc_frame_t *frame = (ipc_frame_t *)priv->tx_buff;
     ipc_status_t ret = IPC_OK;
 
@@ -372,18 +445,19 @@ static ipc_status_t ipc_send(struct spinet *priv, u8 *data, size_t len)
 		set_master_ready();
        	ret = IPC_BUSY;
     }
+#endif
 
     return ret;
 }
 
-void sync_command(struct spinet *priv)
+void ipc_cmd_sync(struct spinet *priv)
 {
 	ipc_init(priv);
 	master_send_request();
 	delay_us(WAITTIME);
 }
 
-static void ipc_receive_callback(struct spinet *priv)
+void ipc_receive_callback(struct spinet *priv)
 {
 	ipc_frame_t *frame = (ipc_frame_t *)priv->rx_buff;
 	struct net_device *ndev = priv->netdev;
@@ -391,20 +465,18 @@ static void ipc_receive_callback(struct spinet *priv)
 	unsigned long flags;
 	int len;
 	
-	if(ipc_frame_check(frame))
-	{
+	if(ipc_frame_check(frame)){
 		//ipc_frame_print(frame);
 		len = frame->header.len;
 		skb = netdev_alloc_skb(ndev, len + NET_IP_ALIGN);
 		if (!skb) {
-			dev_err(&ndev->dev, "out of memory for Rx'd frame\n");
+			dev_err(&ndev->dev, "skb allocation failed\n");
 			ndev->stats.rx_dropped++;
 		} else {
 			skb_reserve(skb, NET_IP_ALIGN);
 			spin_lock_irqsave(&priv->buff_lock, flags);
 			memcpy(skb_put(skb, len), frame->data, len);
 			spin_unlock_irqrestore(&priv->buff_lock, flags);
-			//dump_packet(__func__, skb->len, skb->data);
 			skb->protocol = eth_type_trans(skb, ndev);
 			/* update statistics */
 			ndev->stats.rx_packets++;
@@ -414,52 +486,46 @@ static void ipc_receive_callback(struct spinet *priv)
 	}
 }
 
-static void spinet_spi_work_handler(struct work_struct *work)
+void spinet_spi_work_handler(struct work_struct *work)
 {
 	struct spinet *priv = container_of(work, struct spinet, spi_work);
 
-	//printk(KERN_ERR "===> spinet_spi_work_handler\r\n");
-
+#ifdef NCOVIF_ENABLE
+	send_arp_response(priv);
+	send_icmp_echo(priv);	
+#else
 	ipc_receive_callback(priv);
 	ipc_transfer_complete = true;	
 	set_master_ready();
+#endif
 }
 
-static void spinet_irq_work_handler(struct work_struct *work)
+void spinet_irq_work_handler(struct work_struct *work)
 {
 	struct spinet *priv = container_of(work, struct spinet, irq_work);
-
-	//printk(KERN_ERR "===> spinet_irq_work_handler\r\n");	
 	
-	if(!is_slaver_busy())
-	{
+	if(!is_slaver_busy()){
 		printk(KERN_ERR "===> sync cmd\r\n");
 		ipc_init(priv);
-	}
-	else if(ipc_transfer_complete)
-	{
+	}else if(ipc_transfer_complete){
 		set_master_busy();
 		ipc_transfer_complete = false;
 		spi_write_async(priv, NULL);
 	}	
 }
 
-static irqreturn_t spinet_gpio_irq(int irq, void *devid)
+irqreturn_t spinet_gpio_irq(int irq, void *devid)
 {
 	struct spinet *priv = (struct spinet *)devid;
-
-    //printk(KERN_ERR "===> spinet_gpio_irq\r\n");
 
 	schedule_work(&priv->irq_work);
 
 	return IRQ_HANDLED;
 }
 
-static void spi_transfer_complete(void *context)
+void spi_transfer_complete(void *context)
 {
 	struct spinet *priv = (struct spinet *)context;
-
-	//printk(KERN_ERR "===> spi_transfer_complete\r\n");
 
 	if(is_sending) {
 		is_sending = false;
@@ -470,13 +536,11 @@ static void spi_transfer_complete(void *context)
 	}
 }
 
-static void spi_write_async(struct spinet *priv, u8 *buf)
+void spi_write_async(struct spinet *priv, u8 *buf)
 {
 	struct device *dev = (struct device *)&priv->spi->dev;
 	unsigned long flags;
 	int err;
-
-	//printk(KERN_ERR "===> spi_write_async\r\n");
 
 	if(buf == NULL) {
 		spin_lock_irqsave(&priv->buff_lock, flags);
@@ -507,13 +571,6 @@ static void spi_write_async(struct spinet *priv, u8 *buf)
 }
 
 /* spinet function description */
-
-static void dump_packet(const char *msg, int len, const char *data)
-{
-	printk(KERN_ERR DRV_NAME ": %s - packet len:%d\n", msg, len);
-	print_hex_dump(KERN_ERR, "pk data: ", DUMP_PREFIX_OFFSET, 16, 1,
-			data, len, true);
-}
 
 static int spinet_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 {
@@ -666,7 +723,6 @@ static void spinet_tx_work_handler(struct work_struct *work)
 	struct spinet *priv = container_of(work, struct spinet, tx_work);
 	
 	printk(KERN_ERR DRV_NAME ": Tx Packet Len:%d\n", priv->tx_skb->len);
-	dump_packet(__func__, priv->tx_skb->len, priv->tx_skb->data);
 	
 	ipc_send(priv, priv->tx_skb->data, priv->tx_skb->len);
 	
@@ -759,6 +815,7 @@ static int spinet_probe(struct spi_device *spi)
 	
 	dev = alloc_etherdev(sizeof(struct spinet));
 	if (!dev) {
+		dev_err(&dev->dev, DRV_NAME " net dev allocation failed\n");
 		ret = -ENOMEM;
 		goto error_alloc;
 	}
@@ -836,6 +893,7 @@ static int spinet_probe(struct spi_device *spi)
 	/* setup gpio */
 	ret = spinet_gpio_init(priv);
 	if (ret) {
+		dev_err(&spi->dev, "gpio init failed\r\n");
 		goto free_fifo_buffer;
 	}
 
