@@ -16,6 +16,9 @@
 #include "ncovif.h"
 #include "ipc.h"
 
+/* spinet default mac address */
+u8 default_mac_addr[] = {0xA6, 0x99, 0x91, 0xAD, 0x9D, 0x6F};
+
 /* function prototypes */
 void spi_write_async(struct spinet *priv, u8 *buf);
 
@@ -574,17 +577,12 @@ void spi_write_async(struct spinet *priv, u8 *buf)
 
 static int spinet_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 {
-	struct spinet *priv = netdev_priv(dev);
-
 	printk(KERN_ERR "===> %s\r\n", __func__);
-
 	cmd->transceiver = XCVR_INTERNAL;
-	cmd->supported	= SUPPORTED_10baseT_Half
-			| SUPPORTED_10baseT_Full
-			| SUPPORTED_TP;
+	cmd->supported = SUPPORTED_10baseT_Half | SUPPORTED_TP;
 	ethtool_cmd_speed_set(cmd,  SPEED_10);
-	cmd->duplex	= priv->full_duplex ? DUPLEX_FULL : DUPLEX_HALF;
-	cmd->port	= PORT_TP;
+	cmd->duplex = DUPLEX_HALF;
+	cmd->port = PORT_TP;
 	cmd->autoneg = AUTONEG_DISABLE;
 
 	return 0;
@@ -597,10 +595,7 @@ static int spinet_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 }
 
 static void spineet_get_drvinfo(struct net_device *dev, struct ethtool_drvinfo *info)
-{
-	//struct spinet *priv = netdev_priv(dev);
-	//printk(KERN_ERR "===> %s\r\n", __func__);
-	
+{	
 	strlcpy(info->driver, DRV_NAME, sizeof(info->driver));
 	strlcpy(info->version, DRV_VERSION, sizeof(info->version));
 	strlcpy(info->bus_info,
@@ -645,14 +640,21 @@ static int spinet_open(struct net_device *dev)
 
 	/* init ipc */
 	ipc_init(priv);
+	
+	/* accept transmit request from upper layes */
+	netif_start_queue(dev);
 
 	return 0;
 }
 
 static int spinet_close(struct net_device *dev)
 {
+	struct spinet *priv = netdev_priv(dev);
+
 	printk(KERN_ERR "===> %s\r\n", __func__);
-	
+	disable_irq_nosync(priv->gpio_irq);
+	netif_stop_queue(dev);
+
 	return 0;
 }
 
@@ -704,7 +706,13 @@ static int spinet_set_mac_address(struct net_device *dev, void *addr)
 
 static void spinet_tx_timeout(struct net_device *ndev)
 {
-	
+	struct spinet *priv = netdev_priv(ndev);
+
+	if (netif_msg_timer(priv))
+		dev_err(&ndev->dev, DRV_NAME " tx timeout\n");
+
+	ndev->stats.tx_errors++;
+	schedule_work(&priv->restart_work);
 }
 
 static const struct net_device_ops spinet_netdev_ops = {
@@ -739,7 +747,20 @@ static void spinet_setrx_work_handler(struct work_struct *work)
 
 static void spinet_restart_work_handler(struct work_struct *work)
 {
-	
+	struct spinet *priv = container_of(work, struct spinet, restart_work);
+	struct net_device *ndev = priv->netdev;
+	int ret;
+
+	rtnl_lock();
+	if (netif_running(ndev)) {
+		spinet_close(ndev);
+		ret = spinet_open(ndev);
+		if (unlikely(ret)) {
+			dev_info(&ndev->dev, " could not restart %d\n", ret);
+			dev_close(ndev);
+		}
+	}
+	rtnl_unlock();	
 }
 
 static int spinet_gpio_init(struct spinet *priv)
@@ -930,6 +951,10 @@ static int spinet_probe(struct spi_device *spi)
 				" failed (ret = %d)\n", ret);
 		goto free_gpio_irq;
 	}
+
+	/* set default mac address */
+	memcpy(dev->dev_addr, default_mac_addr, 6);
+
 	dev_err(&dev->dev, DRV_NAME " driver registered\n");
 
 	return 0;
