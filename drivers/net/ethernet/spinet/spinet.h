@@ -35,13 +35,13 @@
 /* Enable NCOVIF debugging */
 //#define NCOVIF_ENABLE 
 
-#define DRV_NAME	"spinet"
-#define DRV_VERSION	"1.01"
+#define DRV_NAME    "spinet"
+#define DRV_VERSION "1.01"
 
 #define SPI_MODE (SPI_MODE_0)
 
-#define SPINET_MSG_DEFAULT	\
-	(NETIF_MSG_PROBE | NETIF_MSG_IFUP | NETIF_MSG_IFDOWN | NETIF_MSG_LINK)
+#define SPINET_MSG_DEFAULT\
+   (NETIF_MSG_PROBE | NETIF_MSG_IFUP | NETIF_MSG_IFDOWN | NETIF_MSG_LINK)
 
 #define TX_TIMEOUT	(4 * HZ)
 
@@ -50,33 +50,33 @@ struct spinet {
 
 	/* net dev */
 	struct net_device *netdev;
-	
+
 	/* spi dev */
 	struct spi_device *spi;
 	struct spi_transfer spi_transfer;
 	struct spi_message spi_msg;
-	
+
 	/* spi transfer buffers */
 	u8 *tx_buff;
 	u8 *rx_buff;
-	
+
 	/* ipc transmit fifo buffer */
 	struct kfifo ipc_tx_fifo;
-	
+
 	/* resource lock */
 	spinlock_t buff_lock;
 	struct mutex lock;
-	
+
 	/* skb buffer */
 	struct sk_buff *tx_skb;
-	
+
 	/* scheduler */
 	struct work_struct spi_work;
 	struct work_struct tx_work;
 	struct work_struct irq_work;
 	struct work_struct setrx_work;
 	struct work_struct restart_work;
-	
+
 	u8 bank;            /* current register bank selected */
 	u16 next_pk_ptr;    /* next packet pointer within FIFO */
 	u16 max_pk_counter; /* statistics: max packet counter */
@@ -92,7 +92,7 @@ struct spinet {
 	int status_out;
 	int send_request;
 	int irq_in;
-	
+
 	/* gpio irq flag */
 	int gpio_irq;
 	bool gpio_flag;

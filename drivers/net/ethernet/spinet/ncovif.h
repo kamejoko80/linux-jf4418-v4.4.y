@@ -8,7 +8,7 @@
 #define ETH_ZLEN        60          /* Min. octets in frame sans FCS                     */
 #define ETH_DATA_LEN    1500        /* Max. octets in payload                            */
 #define ETH_FRAME_LEN   1514        /* Max. octets in frame sans FCS                     */
-#define ETH_FCS_LEN	    4           /* Octets in the FCS                                 */
+#define ETH_FCS_LEN     4           /* Octets in the FCS                                 */
 
 #define IP_HEADER_LEN   20
 
@@ -98,27 +98,27 @@
 #define IP_NEXT_PTR(iph)                 ((uint8_t *)iph + (iph->ihl << 2))
 
 struct arphdr {
-	uint16_t		ar_hrd;             /* format of hardware address (BE)               */
-	uint16_t		ar_pro;             /* format of protocol address (BE)               */
-	uint8_t			ar_hln;             /* length of hardware address                    */
-	uint8_t			ar_pln;             /* length of protocol address                    */
-	uint16_t		ar_op;              /* ARP opcode (command)       (BE)               */
-	uint8_t			ar_sha[ETH_ALEN];   /* sender hardware address                       */
-	uint8_t			ar_sip[4];          /* sender IP address                             */
-	uint8_t			ar_tha[ETH_ALEN];   /* target hardware address                       */
-	uint8_t			ar_tip[4];          /* target IP address                             */
+	uint16_t        ar_hrd;             /* format of hardware address (BE)               */
+	uint16_t        ar_pro;             /* format of protocol address (BE)               */
+	uint8_t         ar_hln;             /* length of hardware address                    */
+	uint8_t         ar_pln;             /* length of protocol address                    */
+	uint16_t        ar_op;              /* ARP opcode (command)       (BE)               */
+	uint8_t         ar_sha[ETH_ALEN];   /* sender hardware address                       */
+	uint8_t         ar_sip[4];          /* sender IP address                             */
+	uint8_t         ar_tha[ETH_ALEN];   /* target hardware address                       */
+	uint8_t         ar_tip[4];          /* target IP address                             */
 } __attribute__((packed, aligned(1)));
 
 struct ethIIhdr {
-	uint8_t			h_dest[ETH_ALEN];   /* destination eth addr                          */
-	uint8_t			h_source[ETH_ALEN]; /* source ether addr                             */
-	uint16_t		h_proto;            /* packet type ID field                          */
-	uint8_t			data[ETH_DATA_LEN]; /* data fields                                   */
+	uint8_t         h_dest[ETH_ALEN];   /* destination eth addr                          */
+	uint8_t         h_source[ETH_ALEN]; /* source ether addr                             */
+	uint16_t        h_proto;            /* packet type ID field                          */
+	uint8_t         data[ETH_DATA_LEN]; /* data fields                                   */
 } __attribute__((packed, aligned(1)));
 
 struct iphdr {
-	uint8_t	 ihl:4,version:4;
-	uint8_t	 tos;
+	uint8_t  ihl:4,version:4;
+	uint8_t  tos;
 	uint16_t tot_len;                   /* BE */
 	uint16_t id;                        /* BE */
 	uint16_t frag_off;                  /* BE */

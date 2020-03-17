@@ -52,7 +52,7 @@
 
 #define CPU_MHZ                    (100000)
 #define DELAY_UNIT                 (1)
-#define WAITTIME     			   (2)
+#define WAITTIME                   (2)
 
 /*!
  * IPC parameter configuration

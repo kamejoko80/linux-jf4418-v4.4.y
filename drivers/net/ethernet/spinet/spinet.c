@@ -97,7 +97,7 @@ void send_arp_response(struct spinet *priv)
 	if(arp_request)
 	{
 		printk(KERN_ERR "send_arp_response\r\n");
-		ipc_network_input(priv, (uint8_t *)&eth_frame_dst, 42);		
+		ipc_network_input(priv, (uint8_t *)&eth_frame_dst, 42);
 		arp_request = false;
 	}
 }
@@ -252,11 +252,11 @@ int icmp_build_package(struct iphdr *sender_iph, uint8_t *icmpd, uint16_t len)
 	struct icmphdr *sender_icmph = (struct icmphdr *) IP_NEXT_PTR(sender_iph);
 
 	icmph = (struct icmphdr *)ip_output_standalone(&eth_frame_dst,
-			                  IPPROTO_ICMP,
-							  sender_iph->id,
-							  sender_iph->daddr,
-							  sender_iph->saddr,
-							  sizeof(struct icmphdr) + len);
+							IPPROTO_ICMP,
+							sender_iph->id,
+							sender_iph->daddr,
+							sender_iph->saddr,
+							sizeof(struct icmphdr) + len);
 	if (!icmph)
 		return -1;
 
@@ -287,24 +287,24 @@ static bool is_sending = false;
 
 void ipc_frame_print(ipc_frame_t *frame)
 {
-    int i;
+	int i;
 
-    printk(KERN_ERR "===== IPC Frame Info =====\r\n");
-    printk(KERN_ERR "Header:\r\n");
-    printk(KERN_ERR "  Soh : 0x%X\r\n", frame->header.soh);
-    printk(KERN_ERR "  Len : %d\r\n", frame->header.len);
-    printk(KERN_ERR "  Data:\r\n");
+	printk(KERN_ERR "===== IPC Frame Info =====\r\n");
+	printk(KERN_ERR "Header:\r\n");
+	printk(KERN_ERR "  Soh : 0x%X\r\n", frame->header.soh);
+	printk(KERN_ERR "  Len : %d\r\n", frame->header.len);
+	printk(KERN_ERR "  Data:\r\n");
 
-    for (i = 0; i < frame->header.len; i++) {
+	for (i = 0; i < frame->header.len; i++) {
 
-    	if(frame->data[i] <= 0x0F){
+		if(frame->data[i] <= 0x0F){
 			printk(KERN_ERR "0%X ", frame->data[i]);
-    	}else{
+		}else{
 			printk(KERN_ERR "%X ", frame->data[i]);
-    	}		
-    }
+		}
+	}
 
-    printk(KERN_ERR "\r\n");
+	printk(KERN_ERR "\r\n");
 }
 
 void ipc_dump_package(uint8_t *package, uint16_t len)
@@ -335,70 +335,70 @@ void delay_us(u32 us)
 
 u8 ipc_frame_crc8(u8 *data, size_t len)
 {
-  unsigned crc = 0;
-  int i, j;
+	unsigned crc = 0;
+	int i, j;
 
-  /* Using x^8 + x^2 + x + 1 polynomial */
-  for (j = len; j; j--, data++) {
-    crc ^= (*data << 8);
+	/* Using x^8 + x^2 + x + 1 polynomial */
+	for (j = len; j; j--, data++) {
+	crc ^= (*data << 8);
 
-    for(i = 8; i; i--) {
-      if (crc & 0x8000) {
-        crc ^= (0x1070 << 3);
-      }
-      crc <<= 1;
-    }
-  }
-  return (u8)(crc >> 8);
+		for(i = 8; i; i--) {
+			if (crc & 0x8000) {
+				crc ^= (0x1070 << 3);
+			}
+			crc <<= 1;
+		}
+	}
+	return (u8)(crc >> 8);
 }
 
 bool ipc_frame_create(struct spinet *priv, ipc_frame_t *frame, u8 *data, size_t len)
 {
-    bool ret = false;
+	bool ret = false;
 	unsigned long flags;
 
-    if(len <= IPC_DATA_MAX_LEN) {
+	if(len <= IPC_DATA_MAX_LEN) {
 
 		spin_lock_irqsave(&priv->buff_lock, flags);
-		
-        /* Reset IPC frame */
-        memset((void *)frame, 0, sizeof(ipc_frame_t));
 
-        /* Creates IPC frame header */
-        frame->header.soh  = IPC_FRAME_SOH;
-        frame->header.len  = len;
-        frame->header.crc8 = ipc_frame_crc8((u8 *)&frame->header, 3);
+		/* Reset IPC frame */
+		memset((void *)frame, 0, sizeof(ipc_frame_t));
 
-        /* Create IPC frame data and CRC8 */
-        memcpy(frame->data, data, len);
-        frame->crc8 = ipc_frame_crc8(frame->data, len);
-		
-        ret = true;
-				
+		/* Creates IPC frame header */
+		frame->header.soh  = IPC_FRAME_SOH;
+		frame->header.len  = len;
+		frame->header.crc8 = ipc_frame_crc8((u8 *)&frame->header, 3);
+
+		/* Create IPC frame data and CRC8 */
+		memcpy(frame->data, data, len);
+		frame->crc8 = ipc_frame_crc8(frame->data, len);
+
+		ret = true;
+
 		spin_unlock_irqrestore(&priv->buff_lock, flags);
 
-    } else {
-        printk(KERN_ERR "Error data length exceeds allow max length\r\n");
-    }
+	} else {
+		printk(KERN_ERR "Error data length exceeds allow max length\r\n");
+	}
 
     return ret;
 }
 
 bool ipc_frame_check(ipc_frame_t *frame)
 {
-    bool ret = false;
+	bool ret = false;
 
-    if(frame->header.soh != IPC_FRAME_SOH) {
+	if(frame->header.soh != IPC_FRAME_SOH) {
 		return ret;
-    } else if(ipc_frame_crc8((u8 *)&frame->header, 3) != frame->header.crc8) {
+	} else if(ipc_frame_crc8((u8 *)&frame->header, 3) != frame->header.crc8) {
 		return ret;
-    } else if(ipc_frame_crc8(frame->data, frame->header.len) != frame->crc8) {
+	} else if(ipc_frame_crc8(frame->data, frame->header.len) != frame->crc8) {
 		return ret;
-    } else {
-        ret = true;
-    }
+	} else {
+		ret = true;
+	}
 
-    return ret;
+	return ret;
 }
 
 void ipc_init(struct spinet *priv)
@@ -412,39 +412,39 @@ ipc_status_t ipc_send(struct spinet *priv, u8 *data, size_t len)
 {
 
 #ifdef NCOVIF_ENABLE
-    ipc_status_t ret = IPC_OK;
+	ipc_status_t ret = IPC_OK;
 
 	/* internal received */
 	eth_frame_process(priv, (struct ethIIhdr *)data);	
 #else
-	
-    ipc_frame_t *frame = (ipc_frame_t *)priv->tx_buff;
-    ipc_status_t ret = IPC_OK;
 
-    if(!ipc_transfer_complete) {
-    	return IPC_BUSY;
-    }
- 
-	set_master_busy();	
- 
-    if(!is_slaver_busy()) {	
-        if(ipc_frame_create(priv, frame, data, len)) {
+	ipc_frame_t *frame = (ipc_frame_t *)priv->tx_buff;
+	ipc_status_t ret = IPC_OK;
+
+	if(!ipc_transfer_complete) {
+		return IPC_BUSY;
+	}
+
+	set_master_busy();
+
+	if(!is_slaver_busy()) {
+		if(ipc_frame_create(priv, frame, data, len)) {
 			is_sending = true;
-            master_send_request();
-            mdelay(WAITTIME);
-            ipc_transfer_complete = false;
+			master_send_request();
+			mdelay(WAITTIME);
+			ipc_transfer_complete = false;
 			spi_write_async(priv, (u8 *)frame);
-        	ret = IPC_OK;
-        } else {
+			ret = IPC_OK;
+		} else {
 			printk(KERN_ERR "===== ipc frame create error =====\r\n");
-        	set_master_ready();
+			set_master_ready();
 			ret = IPC_ERR;
-        }
-    } else {
+		}
+	} else {
 		//printk(KERN_ERR "===== is_slaver_busy =====\r\n");
 		set_master_ready();
-       	ret = IPC_BUSY;
-    }
+		ret = IPC_BUSY;
+	}
 #endif
 
     return ret;
@@ -545,7 +545,7 @@ void spi_write_async(struct spinet *priv, u8 *buf)
 	if(buf == NULL) {
 		spin_lock_irqsave(&priv->buff_lock, flags);
 		memset((void *)priv->tx_buff, 0, IPC_TRANSFER_LEN);
-		spin_unlock_irqrestore(&priv->buff_lock, flags);		
+		spin_unlock_irqrestore(&priv->buff_lock, flags);
 	}
 
 	/* init spi transfer */
@@ -670,16 +670,16 @@ static netdev_tx_t spinet_send_packet(struct sk_buff *skb, struct net_device *de
 		ipc_status = ipc_send(priv, priv->tx_skb->data, priv->tx_skb->len);
 		if(ipc_status == IPC_OK) {
 			dev->stats.tx_packets++;
-			dev->stats.tx_bytes += priv->tx_skb->len;			
+			dev->stats.tx_bytes += priv->tx_skb->len;	
 			dev_kfree_skb(priv->tx_skb);
 			priv->tx_skb = NULL;
 		}else{
-			ret = NETDEV_TX_BUSY;			
-		}			
+			ret = NETDEV_TX_BUSY;	
+		}	
 	}
 
 	return ret;	
-}						
+}
 
 static void spinet_multicast_list(struct net_device *dev)
 {
@@ -824,7 +824,7 @@ static int spinet_probe(struct spi_device *spi)
 	priv->netdev = dev;	/* priv to netdev reference */
 	priv->spi = spi;	/* priv to spi reference */	
 	priv->msg_enable = netif_msg_init(debug.msg_enable, SPINET_MSG_DEFAULT);
-						
+
 	/* allocate spi tx/rx buffers */
 	priv->tx_buff = devm_kzalloc(&spi->dev, IPC_TRANSFER_LEN, GFP_KERNEL);
 
@@ -878,7 +878,7 @@ static int spinet_probe(struct spi_device *spi)
 	SET_NETDEV_DEV(dev, &spi->dev);
 	
 	/* init spi message */
-	spi_message_init(&priv->spi_msg);	
+	spi_message_init(&priv->spi_msg);
 	
 	/* get gpio pin number from device tree */
 	match = of_match_device(of_match_ptr(spinet_of_match), &spi->dev);
@@ -887,8 +887,8 @@ static int spinet_probe(struct spi_device *spi)
 		priv->status_in = of_get_named_gpio(spi->dev.of_node, "status_in", 0);
 		priv->status_out = of_get_named_gpio(spi->dev.of_node, "status_out", 0);
 		priv->send_request = of_get_named_gpio(spi->dev.of_node, "send_request", 0);
-		priv->irq_in = of_get_named_gpio(spi->dev.of_node, "irq_in", 0);		
-	}		
+		priv->irq_in = of_get_named_gpio(spi->dev.of_node, "irq_in", 0);
+	}	
 	
 	/* setup gpio */
 	ret = spinet_gpio_init(priv);
@@ -906,7 +906,7 @@ static int spinet_probe(struct spi_device *spi)
 	if (ret) {
 		dev_err(&spi->dev, "could not regster irq %d\r\n", gpio_to_irq(priv->irq_in));
 		goto gpio_deinit;
-	}	
+	}
 
 	/* store gpio irq */
 	priv->gpio_irq = gpio_to_irq(priv->irq_in);
@@ -930,10 +930,10 @@ static int spinet_probe(struct spi_device *spi)
 				" failed (ret = %d)\n", ret);
 		goto free_gpio_irq;
 	}
-	dev_err(&dev->dev, DRV_NAME " driver registered\n");	
-	
+	dev_err(&dev->dev, DRV_NAME " driver registered\n");
+
 	return 0;
-	
+
 free_gpio_irq:
 	free_irq(priv->gpio_irq, priv);
 
