@@ -48,10 +48,10 @@ static const struct spi_device_id spinet_id_table[] = {
 /* NCOVIF debugging implementation */
 
 uint8_t  my_macaddr[6] = {0x51, 0x80, 0x21, 0xfe, 0xad, 0xd2};
-uint8_t  my_ipaddr[4]  = {0x0A, 0x00, 0x00, 0x02};
+uint8_t  my_ipaddr[4]  = {192, 168, 2, 2};
 
 uint8_t  ex_macaddr[6] = {0xA6, 0x99, 0x91, 0xAD, 0x9D, 0x6F};
-uint8_t  ex_ipaddr[4]  = {0x0A, 0x00, 0x00, 0x01};
+uint8_t  ex_ipaddr[4]  = {192, 168, 2, 1};
 
 struct ethIIhdr eth_frame_dst;
 
@@ -626,7 +626,7 @@ static int spinet_open(struct net_device *dev)
 {
 	struct spinet *priv = netdev_priv(dev);
 
-	printk(KERN_ERR "===> %s\r\n", __func__);
+	//printk(KERN_ERR "===> %s\r\n", __func__);
 
 	if (netif_msg_drv(priv))
 		printk(KERN_ERR DRV_NAME ": %s() enter\n", __func__);
@@ -651,7 +651,7 @@ static int spinet_close(struct net_device *dev)
 {
 	struct spinet *priv = netdev_priv(dev);
 
-	printk(KERN_ERR "===> %s\r\n", __func__);
+	//printk(KERN_ERR "===> %s\r\n", __func__);
 	disable_irq_nosync(priv->gpio_irq);
 	netif_stop_queue(dev);
 
@@ -692,7 +692,7 @@ static int spinet_set_mac_address(struct net_device *dev, void *addr)
 {
 	struct sockaddr *address = addr;
 	
-	printk(KERN_ERR "===> %s\r\n", __func__);
+	//printk(KERN_ERR "===> %s\r\n", __func__);
 	
 	if (netif_running(dev))
 		return -EBUSY;
@@ -707,6 +707,8 @@ static int spinet_set_mac_address(struct net_device *dev, void *addr)
 static void spinet_tx_timeout(struct net_device *ndev)
 {
 	struct spinet *priv = netdev_priv(ndev);
+
+	//printk(KERN_ERR "===> %s\r\n", __func__);
 
 	if (netif_msg_timer(priv))
 		dev_err(&ndev->dev, DRV_NAME " tx timeout\n");
@@ -939,7 +941,8 @@ static int spinet_probe(struct spi_device *spi)
 	spin_lock_init(&priv->buff_lock);
 
 	/* init netdev methods */
-	dev->if_port = IF_PORT_10BASET;
+	dev->mtu = 1500; 
+	dev->irq = priv->gpio_irq;
 	dev->netdev_ops = &spinet_netdev_ops;
 	dev->watchdog_timeo = TX_TIMEOUT;
 	dev->ethtool_ops = &spinet_ethtool_ops;
