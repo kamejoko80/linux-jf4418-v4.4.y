@@ -434,7 +434,14 @@ ipc_status_t ipc_send(struct spinet *priv, u8 *data, size_t len)
 		if(ipc_frame_create(priv, frame, data, len)) {
 			is_sending = true;
 			master_send_request();
-			mdelay(WAITTIME);
+			//mdelay(WAITTIME);
+			//udelay(500);  // 37412(bytes)/s
+			//udelay(600);  // 127568(bytes)/s
+			udelay(700);    // 159192(bytes)/s
+			//udelay(800);  // 154904(bytes)/s
+			//udelay(900);  // 149544(bytes)/s
+			//udelay(1000); // 143536(bytes)/s
+			//udelay(2000); // 114704(bytes)/s
 			ipc_transfer_complete = false;
 			spi_write_async(priv, (u8 *)frame);
 			ret = IPC_OK;
